@@ -18,13 +18,15 @@ import android.widget.TextView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.sab.recipesapp.models.Recipe;
+import com.sab.recipesapp.util.Resource;
 import com.sab.recipesapp.viewmodels.RecipeListViewModel;
 import com.sab.recipesapp.viewmodels.RecipeViewModel;
+//import com.sab.recipesapp.viewmodels.RecipeViewModel;
 
 public class RecipeActivity extends BaseActivity {
 
     private static final String TAG = "RecipeActivity";
-    
+
     private AppCompatImageView mRecipeImage;
     private TextView mRecipeTitle;
     private TextView mRecipeRank;
@@ -42,10 +44,11 @@ public class RecipeActivity extends BaseActivity {
         mIngredientsContainer = findViewById(R.id.ingredients_container);
         mScrollView = findViewById(R.id.parent);
         mRecipeTitle = findViewById(R.id.recipe_title);
-        mRecipeViewModel = new ViewModelProvider(this).get(RecipeViewModel.class);
+//        mRecipeViewModel = new ViewModelProvider
+//                (this).get(RecipeViewModel.class);
+        mRecipeViewModel = new ViewModelProvider(this, ViewModelProvider.AndroidViewModelFactory.getInstance(this.getApplication())).get(RecipeViewModel.class);
 
         showProgressBar(true);
-        subscribeObserver();
         getIncomingIntent();
     }
 
@@ -53,69 +56,47 @@ public class RecipeActivity extends BaseActivity {
         if(getIntent().hasExtra("recipe")){
             Recipe recipe = getIntent().getParcelableExtra("recipe");
             Log.d(TAG, "getIncomingIntent: " + recipe.getTitle());
-            mRecipeViewModel.searchRecipeById(recipe.getRecipe_id());
+            subscribeObservers(recipe.getRecipe_id());
         }
     }
 
-    private void subscribeObserver(){
-        mRecipeViewModel.getRecipe().observe(this, new Observer<Recipe>() {
+    private void subscribeObservers(final String recipeId){
+        mRecipeViewModel.searchRecipeApi(recipeId).observe(this, new Observer<Resource<Recipe>>() {
             @Override
-            public void onChanged(Recipe recipe) {
-                if(recipe != null){
-//                    for(String ingredient: recipe.getIngredients()){
-//                        Log.d(TAG, "onChanged: " + ingredient);
-//                    }
-                    if(recipe.getRecipe_id().equals(mRecipeViewModel.getRecipeId())) {
-                        setRecipeProperty(recipe);
-                        mRecipeViewModel.setRecipeRetrieved(true);
+            public void onChanged(Resource<Recipe> recipeResource) {
+                if(recipeResource != null){
+                    if(recipeResource.data != null){
+                        switch (recipeResource.status){
+                            case ERROR:{
+                                Log.e(TAG, "onChanged: Error! " + recipeResource.message);
+                                showParent();
+                                showProgressBar(false);
+                                setRecipeProperty(recipeResource.data);
+                                break;
+                            }
+                            case LOADING:{
+                            showProgressBar(true);
+                                break;
+                            }
+                            case SUCCESS:{
+                                Log.d(TAG, "onChanged: cache has been refreshed.");
+                                showParent();
+                                showProgressBar(false);
+                                setRecipeProperty(recipeResource.data);
+                                break;
+                            }
+
+                        }
                     }
                 }
             }
         });
-        mRecipeViewModel.isRequestTimedOut().observe(this, new Observer<Boolean>() {
-            @Override
-            public void onChanged(Boolean aBoolean) {
-                if(aBoolean && !mRecipeViewModel.isRecipeRetrieved()){
-                    Log.d(TAG, "onChanged: timed out...");
-                    showErrorScreen("Timed out. Check your internet connection.");
-                }
-            }
-        });
-    }
-
-    private void showErrorScreen(String errorMessage){
-        mRecipeTitle.setText("Error retrieving recipe");
-        mRecipeRank.setText("");
-        TextView textView = new TextView(this);
-        if(errorMessage != ""){
-            textView.setText(errorMessage);
-        }
-        else {
-            textView.setText("Error");
-        }
-        textView.setTextSize(15);
-        textView.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-        mIngredientsContainer.addView(textView);
-
-        RequestOptions requestOptions = new RequestOptions()
-                .placeholder(R.drawable.ic_launcher_background);
-
-        Glide.with(this)
-                .setDefaultRequestOptions(requestOptions)
-                .load(R.drawable.ic_launcher_background)
-                .into(mRecipeImage);
-
-        showParent();
-        showProgressBar(false);
-
     }
 
     private void setRecipeProperty(Recipe recipe){
         if(recipe != null){
             RequestOptions requestOptions = new RequestOptions()
-                    .placeholder(R.drawable.ic_launcher_background);
+                    .placeholder(R.drawable.white_background);
 
             Glide.with(this)
                     .setDefaultRequestOptions(requestOptions)
@@ -124,22 +105,32 @@ public class RecipeActivity extends BaseActivity {
 
             mRecipeTitle.setText(recipe.getTitle());
             mRecipeRank.setText(String.valueOf(Math.round(recipe.getSocial_rank())));
+            setIngredientsList(recipe);
+        }
+        showParent();
+        showProgressBar(false);
+    }
 
-            mIngredientsContainer.removeAllViews();
+    private void setIngredientsList(Recipe recipe){
+        mIngredientsContainer.removeAllViews();
+        if(recipe.getIngredients() != null){
             for(String ingredient : recipe.getIngredients()){
                 TextView textView = new TextView(this);
                 textView.setText(ingredient);
                 textView.setTextSize(15);
                 textView.setLayoutParams(new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ));
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
                 mIngredientsContainer.addView(textView);
             }
-
         }
-        showParent();
-        showProgressBar(false);
+        else {
+            TextView textView = new TextView(this);
+            textView.setText("Error retrieving ingredients.\nCheck network connection.");
+            mIngredientsContainer.addView(textView);
+        }
     }
+
     private void showParent(){
         mScrollView.setVisibility(View.VISIBLE);
     }
